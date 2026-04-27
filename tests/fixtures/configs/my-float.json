@@ -1,0 +1,26 @@
+{
+  "id": "6",
+  "key": "my-float",
+  "type": "config",
+  "valueType": "double",
+  "sendToClientSdk": true,
+  "default": {
+    "rules": [
+      {
+        "criteria": [{"propertyName": "", "operator": "ALWAYS_TRUE"}],
+        "value": {"type": "double", "value": 3.14}
+      }
+    ]
+  },
+  "environments": [
+    {
+      "id": "Production",
+      "rules": [
+        {
+          "criteria": [{"propertyName": "", "operator": "ALWAYS_TRUE"}],
+          "value": {"type": "double", "value": 3.14}
+        }
+      ]
+    }
+  ]
+}

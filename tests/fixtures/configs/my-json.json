@@ -1,0 +1,26 @@
+{
+  "id": "7",
+  "key": "my-json",
+  "type": "config",
+  "valueType": "json",
+  "sendToClientSdk": true,
+  "default": {
+    "rules": [
+      {
+        "criteria": [{"propertyName": "", "operator": "ALWAYS_TRUE"}],
+        "value": {"type": "json", "value": {"foo": "bar"}}
+      }
+    ]
+  },
+  "environments": [
+    {
+      "id": "Production",
+      "rules": [
+        {
+          "criteria": [{"propertyName": "", "operator": "ALWAYS_TRUE"}],
+          "value": {"type": "json", "value": {"foo": "bar"}}
+        }
+      ]
+    }
+  ]
+}

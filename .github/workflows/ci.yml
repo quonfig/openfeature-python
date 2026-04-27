@@ -1,0 +1,54 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+    steps:
+      # Check out the openfeature-python repo into a sibling dir, so the
+      # `path = "../sdk-python"` poetry dependency resolves correctly.
+      - name: Checkout openfeature-python
+        uses: actions/checkout@v4
+        with:
+          path: openfeature-python
+
+      - name: Checkout sdk-python sibling
+        uses: actions/checkout@v4
+        with:
+          repository: quonfig/sdk-python
+          path: sdk-python
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry
+        run: pipx install poetry==1.8.3
+
+      - name: Install dependencies
+        working-directory: openfeature-python
+        run: poetry install --no-interaction
+
+      - name: Lint
+        working-directory: openfeature-python
+        run: poetry run ruff check .
+
+      - name: Unit tests
+        working-directory: openfeature-python
+        run: poetry run pytest tests/unit -v
+
+      - name: Conformance tests
+        working-directory: openfeature-python
+        run: poetry run pytest tests/conformance -v
+
+      - name: Integration tests
+        working-directory: openfeature-python
+        run: poetry run pytest tests/integration -v
