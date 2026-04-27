@@ -4,7 +4,32 @@ on:
     branches: [main]
 
 jobs:
+  wait-for-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for quonfig on PyPI
+        run: |
+          # Read the floor version from pyproject.toml's runtime quonfig dep.
+          # Strip leading version operators (>=, ^, ~, =) and whitespace.
+          required=$(awk -F'"' '/^quonfig = /{print $2; exit}' pyproject.toml | sed 's/^[>=<^~ ]*//')
+          if [ -z "$required" ]; then
+            echo "Could not determine required quonfig version from pyproject.toml" >&2
+            exit 1
+          fi
+          echo "Waiting for quonfig==$required on PyPI..."
+          for i in $(seq 1 60); do
+            if curl -sfI "https://pypi.org/pypi/quonfig/${required}/json" >/dev/null; then
+              echo "Found quonfig==$required after ${i} polls"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for quonfig==$required after 10 minutes" >&2
+          exit 1
+
   test:
+    needs: wait-for-sdk
     uses: ./.github/workflows/ci.yml
 
   check-version:
