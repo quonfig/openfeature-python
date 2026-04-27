@@ -20,7 +20,7 @@ jobs:
         run: |
           current_version=$(awk -F\" '/^version = /{print $2; exit}' pyproject.toml)
           echo "current-version=$current_version" >> $GITHUB_OUTPUT
-          if curl -sfI "https://pypi.org/pypi/quonfig-openfeature/${current_version}/json" >/dev/null; then
+          if curl -sfI "https://pypi.org/pypi/openfeature-python/${current_version}/json" >/dev/null; then
             echo "changed=false" >> $GITHUB_OUTPUT
           else
             echo "changed=true" >> $GITHUB_OUTPUT

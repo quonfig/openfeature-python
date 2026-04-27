@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "quonfig-openfeature"
+name = "openfeature-python"
 version = "0.0.2"
 description = "OpenFeature provider for Quonfig — Python server-side SDK"
 license = "MIT"
