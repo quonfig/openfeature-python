@@ -9,17 +9,24 @@ import pytest
 
 from quonfig_openfeature import QuonfigProvider
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+# Mirror openfeature-go's `integrationTestDataDir()` helper — the shared
+# corpus lives as a sibling repo. CI checks it out alongside `sdk-python`
+# and this module.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+INTEGRATION_TEST_DATA_DIR = (
+    _REPO_ROOT / "integration-test-data" / "data" / "integration-tests"
+)
 
 
 @pytest.fixture(scope="session")
 def fixtures_dir() -> str:
-    return str(FIXTURES_DIR)
+    return str(INTEGRATION_TEST_DATA_DIR)
 
 
 @pytest.fixture
 def provider(fixtures_dir: str) -> QuonfigProvider:
-    """A real QuonfigProvider backed by the test datadir, no network."""
+    """A real QuonfigProvider backed by the shared integration-test-data
+    datadir, no network."""
     p = QuonfigProvider(
         sdk_key="test-sdk-key",
         datadir=fixtures_dir,

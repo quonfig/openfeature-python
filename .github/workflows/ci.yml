@@ -25,6 +25,16 @@ jobs:
           repository: quonfig/sdk-python
           path: sdk-python
 
+      # The conformance + integration test suites run against the shared
+      # ``integration-test-data`` corpus. Mirror openfeature-go's CI by
+      # checking it out as a sibling — the test fixtures resolve it via a
+      # relative path from the test file location.
+      - name: Checkout integration-test-data sibling
+        uses: actions/checkout@v4
+        with:
+          repository: quonfig/integration-test-data
+          path: integration-test-data
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:

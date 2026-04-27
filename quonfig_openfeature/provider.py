@@ -3,18 +3,37 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping, Optional, Sequence, Union
+from typing import Any, Callable, Mapping, Optional, Sequence, Union
 
 from openfeature.evaluation_context import EvaluationContext
 from openfeature.flag_evaluation import ErrorCode, FlagResolutionDetails, Reason
 from openfeature.provider import AbstractProvider, Metadata
-from quonfig import Quonfig
-from quonfig.exceptions import QuonfigKeyNotFoundError
+from quonfig import EvaluationDetails, Quonfig
 
 from .context import map_context
-from .errors import to_error_code
 
 logger = logging.getLogger(__name__)
+
+
+# Map the Quonfig SDK's EvaluationDetails reason strings to OpenFeature's
+# ``Reason`` enum. The SDK has been deliberately aligned with OF's
+# ``StandardResolutionReasons`` subset so this is a 1:1 lookup.
+_REASON_MAP = {
+    "STATIC": Reason.STATIC,
+    "TARGETING_MATCH": Reason.TARGETING_MATCH,
+    "SPLIT": Reason.SPLIT,
+    "DEFAULT": Reason.DEFAULT,
+    "ERROR": Reason.ERROR,
+}
+
+# The SDK's error_code strings line up with ``ErrorCode``'s identifiers, but
+# we go through an explicit map so a future SDK-side addition (e.g. PARSE_ERROR)
+# can't silently break our mapping.
+_ERROR_CODE_MAP = {
+    "FLAG_NOT_FOUND": ErrorCode.FLAG_NOT_FOUND,
+    "TYPE_MISMATCH": ErrorCode.TYPE_MISMATCH,
+    "GENERAL": ErrorCode.GENERAL,
+}
 
 
 class QuonfigProvider(AbstractProvider):
@@ -76,7 +95,7 @@ class QuonfigProvider(AbstractProvider):
         evaluation_context: Optional[EvaluationContext] = None,
     ) -> FlagResolutionDetails[bool]:
         return self._resolve(
-            flag_key, default_value, evaluation_context, self._client.get_bool, bool
+            flag_key, default_value, evaluation_context, self._client.get_bool_details
         )
 
     def resolve_string_details(
@@ -86,7 +105,7 @@ class QuonfigProvider(AbstractProvider):
         evaluation_context: Optional[EvaluationContext] = None,
     ) -> FlagResolutionDetails[str]:
         return self._resolve(
-            flag_key, default_value, evaluation_context, self._client.get_string, str
+            flag_key, default_value, evaluation_context, self._client.get_string_details
         )
 
     def resolve_integer_details(
@@ -96,7 +115,7 @@ class QuonfigProvider(AbstractProvider):
         evaluation_context: Optional[EvaluationContext] = None,
     ) -> FlagResolutionDetails[int]:
         return self._resolve(
-            flag_key, default_value, evaluation_context, self._client.get_int, int
+            flag_key, default_value, evaluation_context, self._client.get_int_details
         )
 
     def resolve_float_details(
@@ -106,7 +125,7 @@ class QuonfigProvider(AbstractProvider):
         evaluation_context: Optional[EvaluationContext] = None,
     ) -> FlagResolutionDetails[float]:
         return self._resolve(
-            flag_key, default_value, evaluation_context, self._client.get_float, float
+            flag_key, default_value, evaluation_context, self._client.get_float_details
         )
 
     def resolve_object_details(
@@ -116,26 +135,27 @@ class QuonfigProvider(AbstractProvider):
         evaluation_context: Optional[EvaluationContext] = None,
     ) -> FlagResolutionDetails[Union[Sequence[Any], Mapping[str, Any]]]:
         mapped = map_context(evaluation_context, self._targeting_key_mapping)
-        try:
-            # `get_json` returns the raw resolved value (list / dict / scalar),
-            # so it handles both `string_list` and `json` configs without the
-            # str-coercion that `get_string_list` does. We expose a list/dict
-            # through OF's object channel directly; if a scalar slipped into
-            # this method we fall through to FLAG_NOT_FOUND so callers can
-            # detect the type mismatch via the default path.
-            value = self._client.get_json(flag_key, default=None, contexts=mapped)
+
+        # Try string-list first so ``string_list`` configs surface as a list,
+        # then fall back to JSON for dict / generic JSON values. Both code
+        # paths now use the *_details API and inherit the same reason mapping.
+        details = self._client.get_string_list_details(flag_key, contexts=mapped)
+        if details.reason in ("STATIC", "TARGETING_MATCH", "SPLIT") and isinstance(
+            details.value, list
+        ):
+            return FlagResolutionDetails(
+                value=details.value, reason=_REASON_MAP[details.reason]
+            )
+
+        json_details = self._client.get_json_details(flag_key, contexts=mapped)
+        if json_details.reason in ("STATIC", "TARGETING_MATCH", "SPLIT"):
+            value = json_details.value
             if isinstance(value, (list, dict)):
-                return FlagResolutionDetails(value=value, reason=Reason.TARGETING_MATCH)
-
-            if value is None:
                 return FlagResolutionDetails(
-                    value=default_value,
-                    reason=Reason.ERROR,
-                    error_code=ErrorCode.FLAG_NOT_FOUND,
-                    error_message=f"Flag '{flag_key}' not found",
+                    value=value, reason=_REASON_MAP[json_details.reason]
                 )
-
-            # Found a value but it's a scalar — surface as TYPE_MISMATCH.
+            # Found a successful resolution but it's a scalar — surface as
+            # TYPE_MISMATCH so callers can detect the wrong-channel use.
             return FlagResolutionDetails(
                 value=default_value,
                 reason=Reason.ERROR,
@@ -145,20 +165,17 @@ class QuonfigProvider(AbstractProvider):
                     f"{type(value).__name__}"
                 ),
             )
-        except QuonfigKeyNotFoundError as e:
-            return FlagResolutionDetails(
-                value=default_value,
-                reason=Reason.ERROR,
-                error_code=ErrorCode.FLAG_NOT_FOUND,
-                error_message=str(e),
-            )
-        except Exception as e:  # noqa: BLE001 — surface every error as ERROR result
-            return FlagResolutionDetails(
-                value=default_value,
-                reason=Reason.ERROR,
-                error_code=to_error_code(e),
-                error_message=str(e),
-            )
+
+        # Both attempts came back ERROR or DEFAULT — surface using whichever
+        # signal is more specific. Prefer the JSON path for non-FLAG_NOT_FOUND
+        # errors (e.g. an explicit TYPE_MISMATCH from list coercion is less
+        # informative for a JSON-typed config than the JSON-side failure).
+        chosen = (
+            json_details
+            if json_details.error_code != "FLAG_NOT_FOUND"
+            else details
+        )
+        return _details_to_of(chosen, default_value, flag_key)
 
     # ------------------------------------------------------------------
     # Internals
@@ -169,58 +186,15 @@ class QuonfigProvider(AbstractProvider):
         flag_key: str,
         default_value: Any,
         evaluation_context: Optional[EvaluationContext],
-        getter: Any,
-        py_type: type,
+        getter: Callable[..., EvaluationDetails[Any]],
     ) -> FlagResolutionDetails[Any]:
         mapped = map_context(evaluation_context, self._targeting_key_mapping)
-        try:
-            # `default=None` is the documented "missing-flag" sentinel for the
-            # Python SDK: `_handle_missing` returns None instead of raising
-            # QuonfigKeyNotFoundError, which lets us distinguish missing from
-            # falsy without try/except gymnastics on every call.
-            value = getter(flag_key, default=None, contexts=mapped)
-            if value is None:
-                return FlagResolutionDetails(
-                    value=default_value,
-                    reason=Reason.ERROR,
-                    error_code=ErrorCode.FLAG_NOT_FOUND,
-                    error_message=f"Flag '{flag_key}' not found",
-                )
-            # Type guard so a string-typed config doesn't sneak through a
-            # boolean resolver. ``bool`` is a subclass of ``int`` so check it
-            # explicitly first.
-            if py_type is bool:
-                if not isinstance(value, bool):
-                    return _type_mismatch(default_value, flag_key, py_type, value)
-            elif py_type in (int, float):
-                if isinstance(value, bool) or not isinstance(value, (int, float)):
-                    return _type_mismatch(default_value, flag_key, py_type, value)
-            elif py_type is str and not isinstance(value, str):
-                return _type_mismatch(default_value, flag_key, py_type, value)
-
-            # Coerce int/float to the exact python type (e.g. an int stored as
-            # float, or vice versa) to keep the FlagResolutionDetails value
-            # exactly what callers asked for.
-            if py_type is int:
-                value = int(value)
-            elif py_type is float:
-                value = float(value)
-
-            return FlagResolutionDetails(value=value, reason=Reason.TARGETING_MATCH)
-        except QuonfigKeyNotFoundError as e:
-            return FlagResolutionDetails(
-                value=default_value,
-                reason=Reason.ERROR,
-                error_code=ErrorCode.FLAG_NOT_FOUND,
-                error_message=str(e),
-            )
-        except Exception as e:  # noqa: BLE001
-            return FlagResolutionDetails(
-                value=default_value,
-                reason=Reason.ERROR,
-                error_code=to_error_code(e),
-                error_message=str(e),
-            )
+        # The new *_details methods never raise — they return ERROR-reason
+        # EvaluationDetails for every failure path (missing flag, type
+        # mismatch, unexpected exception). The provider becomes a pure
+        # mapping layer; no try/except gymnastics.
+        details = getter(flag_key, contexts=mapped)
+        return _details_to_of(details, default_value, flag_key)
 
     # ------------------------------------------------------------------
     # Escape hatch
@@ -235,15 +209,32 @@ class QuonfigProvider(AbstractProvider):
         return self._client
 
 
-def _type_mismatch(
-    default_value: Any, flag_key: str, expected: type, actual_value: Any
+def _details_to_of(
+    details: EvaluationDetails[Any], default_value: Any, flag_key: str
 ) -> FlagResolutionDetails[Any]:
-    return FlagResolutionDetails(
-        value=default_value,
-        reason=Reason.ERROR,
-        error_code=ErrorCode.TYPE_MISMATCH,
-        error_message=(
-            f"Flag '{flag_key}' expected {expected.__name__}, got "
-            f"{type(actual_value).__name__}"
-        ),
-    )
+    """Translate a ``quonfig.EvaluationDetails`` into an OpenFeature
+    ``FlagResolutionDetails``, substituting the caller-provided default when
+    the SDK couldn't produce a value."""
+    reason = _REASON_MAP.get(details.reason, Reason.UNKNOWN)
+
+    if details.reason == "ERROR":
+        error_code = _ERROR_CODE_MAP.get(
+            details.error_code or "", ErrorCode.GENERAL
+        )
+        return FlagResolutionDetails(
+            value=default_value,
+            reason=Reason.ERROR,
+            error_code=error_code,
+            error_message=details.error_message
+            or f"Flag '{flag_key}' could not be resolved",
+        )
+
+    if details.reason == "DEFAULT" or details.value is None:
+        # DEFAULT means flag-exists-but-no-rule-matched — give the caller
+        # back their fallback value.
+        return FlagResolutionDetails(
+            value=default_value,
+            reason=Reason.DEFAULT,
+        )
+
+    return FlagResolutionDetails(value=details.value, reason=reason)

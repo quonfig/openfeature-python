@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "quonfig-openfeature"
-version = "0.0.3"
+version = "0.0.4"
 description = "OpenFeature provider for Quonfig — Python server-side SDK"
 license = "MIT"
 authors = ["Quonfig <hello@quonfig.com>"]
@@ -12,7 +12,7 @@ python = "^3.9"
 # Runtime dependency on the Quonfig Python SDK. For local development we
 # resolve against the sibling repo via the `dev` group below; published
 # packages will resolve against the public `quonfig` distribution.
-quonfig = ">=0.0.7"
+quonfig = ">=0.0.8"
 openfeature-sdk = ">=0.7.0"
 
 [tool.poetry.group.dev.dependencies]

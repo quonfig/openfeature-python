@@ -5,8 +5,12 @@ References:
 - https://openfeature.dev/specification/sections/flag-evaluation
 
 The provider is built once per session via the ``provider`` fixture in
-``conftest.py``, then each section calls into ``resolve_*_details`` directly
-without going through the OpenFeature singleton.
+``conftest.py`` against the shared ``integration-test-data`` corpus, then each
+section calls into ``resolve_*_details`` directly without going through the
+OpenFeature singleton.
+
+Reasons matter here: pinning STATIC / TARGETING_MATCH / SPLIT to the right
+fixtures is the regression test for the new ``*_details`` plumbing.
 """
 
 from __future__ import annotations
@@ -109,18 +113,47 @@ def test_2_1_returns_object_default_for_missing_flag(provider):
 
 
 # ---------------------------------------------------------------------------
-# 2.7 — Resolution reasons
+# 2.7 — Resolution reasons (the regression test for *_details plumbing)
 # ---------------------------------------------------------------------------
 
 
-def test_2_7_targeting_match_for_found_boolean(provider):
-    result = provider.resolve_boolean_details("my-flag", False)
+def test_2_7_static_reason_for_always_true_flag(provider):
+    """`always.true` is a feature flag with only an ALWAYS_TRUE rule and no
+    targeting — it should surface as STATIC, not TARGETING_MATCH. This is
+    the core regression test for the new *_details plumbing."""
+    result = provider.resolve_boolean_details("always.true", False)
+    assert result.value is True
+    assert result.reason == Reason.STATIC
+    assert result.error_code is None
+
+
+def test_2_7_targeting_match_for_property_rule_match(provider):
+    """`of.targeting` has a property rule on user.plan == "pro" — when the
+    rule fires, the reason must be TARGETING_MATCH."""
+    ec = EvaluationContext(attributes={"user.plan": "pro"})
+    result = provider.resolve_boolean_details("of.targeting", False, ec)
+    assert result.value is True
     assert result.reason == Reason.TARGETING_MATCH
 
 
-def test_2_7_targeting_match_for_found_string(provider):
-    result = provider.resolve_string_details("my-string", "")
+def test_2_7_targeting_match_for_property_rule_fall_through(provider):
+    """When the property rule misses, the next rule (ALWAYS_TRUE → false)
+    still fires. Since the config has targeting rules above the catch-all,
+    the SDK reports TARGETING_MATCH for the fall-through too."""
+    ec = EvaluationContext(attributes={"user.plan": "free"})
+    result = provider.resolve_boolean_details("of.targeting", True, ec)
+    assert result.value is False
     assert result.reason == Reason.TARGETING_MATCH
+
+
+def test_2_7_split_reason_for_weighted_values(provider):
+    """`of.weighted` is a 50/50 weighted_values config hashed by user.id.
+    `user-2` is empirically known to land on variant-b (a non-zero
+    weighted index), which the SDK reports as SPLIT."""
+    ec = EvaluationContext(targeting_key="user-2")
+    result = provider.resolve_string_details("of.weighted", "fallback", ec)
+    assert result.value == "variant-b"
+    assert result.reason == Reason.SPLIT
 
 
 def test_2_7_error_reason_for_missing_flag(provider):
@@ -134,29 +167,34 @@ def test_2_7_error_reason_for_missing_flag(provider):
 
 
 def test_2_4_resolves_boolean(provider):
-    assert provider.resolve_boolean_details("my-flag", False).value is True
+    assert provider.resolve_boolean_details("always.true", False).value is True
 
 
 def test_2_4_resolves_string(provider):
-    assert provider.resolve_string_details("my-string", "").value == "hello"
+    # `my-test-key` resolves to "my-test-value" in Production via the
+    # always-true rule.
+    result = provider.resolve_string_details("my-test-key", "")
+    assert result.value == "my-test-value"
 
 
 def test_2_4_resolves_integer(provider):
-    assert provider.resolve_integer_details("my-int", 0).value == 42
+    # `jeffreys.test.int` falls through to the always-true rule (99),
+    # since no context matches the email targeting rule.
+    assert provider.resolve_integer_details("jeffreys.test.int", 0).value == 99
 
 
 def test_2_4_resolves_float(provider):
-    assert provider.resolve_float_details("my-float", 0.0).value == 3.14
+    assert provider.resolve_float_details("my-double-key", 0.0).value == 9.95
 
 
 def test_2_4_resolves_string_list_as_object(provider):
-    result = provider.resolve_object_details("my-list", [])
+    result = provider.resolve_object_details("my-string-list-key", [])
     assert result.value == ["a", "b", "c"]
 
 
 def test_2_4_resolves_json_as_object(provider):
-    result = provider.resolve_object_details("my-json", {})
-    assert result.value == {"foo": "bar"}
+    result = provider.resolve_object_details("test.json", {})
+    assert result.value == {"a": 1, "b": "c"}
 
 
 # ---------------------------------------------------------------------------
@@ -166,19 +204,19 @@ def test_2_4_resolves_json_as_object(provider):
 
 def test_3_2_dot_notation_context_routes_to_targeting_rule_pro(provider):
     ec = EvaluationContext(attributes={"user.plan": "pro"})
-    result = provider.resolve_boolean_details("plan-flag", False, ec)
+    result = provider.resolve_boolean_details("of.targeting", False, ec)
     assert result.value is True
 
 
 def test_3_2_dot_notation_context_routes_to_targeting_rule_free(provider):
     ec = EvaluationContext(attributes={"user.plan": "free"})
-    result = provider.resolve_boolean_details("plan-flag", False, ec)
+    result = provider.resolve_boolean_details("of.targeting", True, ec)
     assert result.value is False
 
 
 def test_3_2_targeting_key_maps_to_user_id_by_default(provider):
     ec = EvaluationContext(targeting_key="user-123", attributes={"user.plan": "pro"})
-    result = provider.resolve_boolean_details("plan-flag", False, ec)
+    result = provider.resolve_boolean_details("of.targeting", False, ec)
     assert result.value is True
 
 
