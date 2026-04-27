@@ -1,0 +1,61 @@
+name: Release Package
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  check-version:
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      version-changed: ${{ steps.check.outputs.changed }}
+      current-version: ${{ steps.check.outputs.current-version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check if version needs publishing
+        id: check
+        run: |
+          current_version=$(awk -F\" '/^version = /{print $2; exit}' pyproject.toml)
+          echo "current-version=$current_version" >> $GITHUB_OUTPUT
+          if curl -sfI "https://pypi.org/pypi/quonfig-openfeature/${current_version}/json" >/dev/null; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+  release:
+    runs-on: ubuntu-latest
+    needs: check-version
+    if: needs.check-version.outputs.version-changed == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: openfeature-python
+
+      - name: Checkout sdk-python sibling
+        uses: actions/checkout@v4
+        with:
+          repository: quonfig/sdk-python
+          path: sdk-python
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: pipx install poetry==1.8.3
+
+      - name: Build distribution
+        working-directory: openfeature-python
+        run: poetry build
+
+      - name: Publish to PyPI via trusted publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: openfeature-python/dist
