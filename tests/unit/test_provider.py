@@ -109,9 +109,7 @@ def test_split_reason_passes_through(provider, mock_client):
 
 
 def test_default_reason_returns_default_value(provider, mock_client):
-    mock_client.get_bool_details.return_value = EvaluationDetails(
-        value=None, reason="DEFAULT"
-    )
+    mock_client.get_bool_details.return_value = EvaluationDetails(value=None, reason="DEFAULT")
     result = provider.resolve_boolean_details("flag", True)
     assert result.value is True
     assert result.reason == Reason.DEFAULT
@@ -146,9 +144,7 @@ def test_boolean_returns_general_for_general_error(provider, mock_client):
 
 
 def test_boolean_type_mismatch_when_sdk_reports_type_mismatch(provider, mock_client):
-    mock_client.get_bool_details.return_value = _err(
-        "TYPE_MISMATCH", "not a bool"
-    )
+    mock_client.get_bool_details.return_value = _err("TYPE_MISMATCH", "not a bool")
     result = provider.resolve_boolean_details("any", False)
     assert result.error_code == ErrorCode.TYPE_MISMATCH
 
@@ -245,9 +241,7 @@ def test_object_returns_type_mismatch_for_scalar_value(provider, mock_client):
 def test_object_returns_static_reason_for_static_list(provider, mock_client):
     """STATIC reason should pass through the object channel just like the
     typed channels."""
-    mock_client.get_string_list_details.return_value = _ok(
-        ["a", "b"], reason="STATIC"
-    )
+    mock_client.get_string_list_details.return_value = _ok(["a", "b"], reason="STATIC")
     result = provider.resolve_object_details("static-list", [])
     assert result.reason == Reason.STATIC
     assert result.value == ["a", "b"]

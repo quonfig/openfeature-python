@@ -13,9 +13,7 @@ from quonfig_openfeature import QuonfigProvider
 # corpus lives as a sibling repo. CI checks it out alongside `sdk-python`
 # and this module.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-INTEGRATION_TEST_DATA_DIR = (
-    _REPO_ROOT / "integration-test-data" / "data" / "integration-tests"
-)
+INTEGRATION_TEST_DATA_DIR = _REPO_ROOT / "integration-test-data" / "data" / "integration-tests"
 
 
 @pytest.fixture(scope="session")

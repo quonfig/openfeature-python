@@ -143,17 +143,13 @@ class QuonfigProvider(AbstractProvider):
         if details.reason in ("STATIC", "TARGETING_MATCH", "SPLIT") and isinstance(
             details.value, list
         ):
-            return FlagResolutionDetails(
-                value=details.value, reason=_REASON_MAP[details.reason]
-            )
+            return FlagResolutionDetails(value=details.value, reason=_REASON_MAP[details.reason])
 
         json_details = self._client.get_json_details(flag_key, contexts=mapped)
         if json_details.reason in ("STATIC", "TARGETING_MATCH", "SPLIT"):
             value = json_details.value
             if isinstance(value, (list, dict)):
-                return FlagResolutionDetails(
-                    value=value, reason=_REASON_MAP[json_details.reason]
-                )
+                return FlagResolutionDetails(value=value, reason=_REASON_MAP[json_details.reason])
             # Found a successful resolution but it's a scalar — surface as
             # TYPE_MISMATCH so callers can detect the wrong-channel use.
             return FlagResolutionDetails(
@@ -161,8 +157,7 @@ class QuonfigProvider(AbstractProvider):
                 reason=Reason.ERROR,
                 error_code=ErrorCode.TYPE_MISMATCH,
                 error_message=(
-                    f"Flag '{flag_key}' is not an object/array; got "
-                    f"{type(value).__name__}"
+                    f"Flag '{flag_key}' is not an object/array; got " f"{type(value).__name__}"
                 ),
             )
 
@@ -170,11 +165,7 @@ class QuonfigProvider(AbstractProvider):
         # signal is more specific. Prefer the JSON path for non-FLAG_NOT_FOUND
         # errors (e.g. an explicit TYPE_MISMATCH from list coercion is less
         # informative for a JSON-typed config than the JSON-side failure).
-        chosen = (
-            json_details
-            if json_details.error_code != "FLAG_NOT_FOUND"
-            else details
-        )
+        chosen = json_details if json_details.error_code != "FLAG_NOT_FOUND" else details
         return _details_to_of(chosen, default_value, flag_key)
 
     # ------------------------------------------------------------------
@@ -218,15 +209,12 @@ def _details_to_of(
     reason = _REASON_MAP.get(details.reason, Reason.UNKNOWN)
 
     if details.reason == "ERROR":
-        error_code = _ERROR_CODE_MAP.get(
-            details.error_code or "", ErrorCode.GENERAL
-        )
+        error_code = _ERROR_CODE_MAP.get(details.error_code or "", ErrorCode.GENERAL)
         return FlagResolutionDetails(
             value=default_value,
             reason=Reason.ERROR,
             error_code=error_code,
-            error_message=details.error_message
-            or f"Flag '{flag_key}' could not be resolved",
+            error_message=details.error_message or f"Flag '{flag_key}' could not be resolved",
         )
 
     if details.reason == "DEFAULT" or details.value is None:

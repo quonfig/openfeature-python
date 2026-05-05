@@ -51,6 +51,10 @@ jobs:
         working-directory: openfeature-python
         run: poetry run ruff check .
 
+      - name: Ruff format check
+        working-directory: openfeature-python
+        run: poetry run ruff format --check .
+
       - name: Unit tests
         working-directory: openfeature-python
         run: poetry run pytest tests/unit -v
