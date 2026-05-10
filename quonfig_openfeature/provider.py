@@ -207,6 +207,7 @@ def _details_to_of(
     ``FlagResolutionDetails``, substituting the caller-provided default when
     the SDK couldn't produce a value."""
     reason = _REASON_MAP.get(details.reason, Reason.UNKNOWN)
+    flag_metadata = details.flag_metadata or {}
 
     if details.reason == "ERROR":
         error_code = _ERROR_CODE_MAP.get(details.error_code or "", ErrorCode.GENERAL)
@@ -215,6 +216,8 @@ def _details_to_of(
             reason=Reason.ERROR,
             error_code=error_code,
             error_message=details.error_message or f"Flag '{flag_key}' could not be resolved",
+            variant=details.variant,
+            flag_metadata=flag_metadata,
         )
 
     if details.reason == "DEFAULT" or details.value is None:
@@ -223,6 +226,13 @@ def _details_to_of(
         return FlagResolutionDetails(
             value=default_value,
             reason=Reason.DEFAULT,
+            variant=details.variant,
+            flag_metadata=flag_metadata,
         )
 
-    return FlagResolutionDetails(value=details.value, reason=reason)
+    return FlagResolutionDetails(
+        value=details.value,
+        reason=reason,
+        variant=details.variant,
+        flag_metadata=flag_metadata,
+    )
