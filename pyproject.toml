@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "quonfig-openfeature"
-version = "0.0.6"
+version = "0.0.7"
 description = "OpenFeature provider for Quonfig — Python server-side SDK"
 license = "MIT"
 authors = ["Quonfig <hello@quonfig.com>"]
@@ -8,11 +8,12 @@ readme = "README.md"
 packages = [{include = "quonfig_openfeature"}]
 
 [tool.poetry.dependencies]
-python = ">=3.9.2,<4.0"
-# Runtime dependency on the Quonfig Python SDK. For local development we
-# resolve against the sibling repo via the `dev` group below; published
-# packages will resolve against the public `quonfig` distribution.
-quonfig = ">=0.0.13"
+# Floor raised to 3.10 to track the `quonfig` SDK, which dropped Python 3.9
+# support in 0.0.15.
+python = ">=3.10,<4.0"
+# Runtime dependency on the Quonfig Python SDK, resolved from the published
+# `quonfig` distribution on PyPI.
+quonfig = ">=0.0.15"
 openfeature-sdk = ">=0.7.0"
 
 [tool.poetry.group.dev.dependencies]
@@ -20,16 +21,13 @@ pytest = "^8.0"
 pytest-mock = "^3.0"
 ruff = "^0.4"
 mypy = "^1.0"
-# Path dependency so the sibling sdk-python is what actually gets used in
-# development and CI. `develop = true` keeps it as an editable install.
-quonfig = {path = "../sdk-python", develop = true}
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 100
 
 [tool.ruff.format]
