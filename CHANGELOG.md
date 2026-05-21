@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.8 - 2026-05-21
+
+- Bump `quonfig` runtime floor to `>=0.0.17`, tracking the latest published
+  Python SDK release on PyPI.
+
 ## 0.0.7 - 2026-05-14
 
 - Forward `variant` and `flag_metadata` from the Quonfig SDK through to
