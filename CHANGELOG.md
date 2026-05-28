@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.9 - 2026-05-28
+
+- Bump `quonfig` runtime floor to `>=0.0.18`, tracking the latest published
+  Python SDK release on PyPI (sdk-1.0-unification).
+
 ## 0.0.8 - 2026-05-21
 
 - Bump `quonfig` runtime floor to `>=0.0.17`, tracking the latest published
