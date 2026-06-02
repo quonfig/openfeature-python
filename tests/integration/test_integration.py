@@ -24,7 +24,12 @@ def of_client(fixtures_dir):
         collect_evaluation_summaries=False,
         context_upload_mode="none",
     )
-    api.set_provider(provider, domain="integration-test")
+    # set_provider_and_wait, NOT set_provider: openfeature-sdk >=0.10 runs
+    # provider initialization on a background thread, so set_provider returns
+    # before the provider reaches READY. The first evaluation then races init
+    # and resolves to PROVIDER_NOT_READY -> the OF default. Block until READY so
+    # the suite reflects steady-state resolution (qfg-gkro).
+    api.set_provider_and_wait(provider, domain="integration-test")
     client = api.get_client(domain="integration-test")
     yield client
     api.shutdown()
