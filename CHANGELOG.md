@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.10 - 2026-06-02
+
+- Raise the `quonfig` dependency floor from `>=0.0.18` to `>=0.0.21` to inherit dev-context injection default-on (qfg-bw7g.9, via qfg-bw7g.4). No change to this provider's behavior — dev-context lives below the OpenFeature layer, so OpenFeature users now get `quonfig-user.email` injection by default in local dev (gated on the `qfg login` token file; inert in production).
+
 ## 0.0.9 - 2026-05-28
 
 - Bump `quonfig` runtime floor to `>=0.0.18`, tracking the latest published
