@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0 - 2026-06-06
+
+- **Stable 1.0.0 release.** The Quonfig OpenFeature provider for Python is now declared
+  stable and depends on the `quonfig` SDK >= 1.0.0. No API or behavior changes from
+  0.0.10 — this is a coordinated 1.0.0 version stamp across the entire Quonfig SDK
+  family.
+
 ## 0.0.10 - 2026-06-02
 
 - Raise the `quonfig` dependency floor from `>=0.0.18` to `>=0.0.21` to inherit dev-context injection default-on (qfg-bw7g.9, via qfg-bw7g.4). No change to this provider's behavior — dev-context lives below the OpenFeature layer, so OpenFeature users now get `quonfig-user.email` injection by default in local dev (gated on the `qfg login` token file; inert in production).
