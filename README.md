@@ -24,7 +24,7 @@ provider = QuonfigProvider(
     # targeting_key_mapping="user.id",  # default
 )
 
-api.set_provider(provider)
+api.set_provider_and_wait(provider)
 client = api.get_client()
 
 # Boolean flag
