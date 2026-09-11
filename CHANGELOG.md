@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1 - 2026-09-11
+
+- Raise the `quonfig` dependency floor from `>=1.0.0` to `>=1.4.1` so provider
+  users inherit the SDK's fork-safety fix (a forked worker rebuilds its own
+  config stream instead of going silently stale; sdk-python 1.4.0, epic
+  qfg-lv4n) and the 1.4.1 follow-ups (a real per-instance `instanceHash`,
+  strictly-older `guardRejected`). No change to this provider's behavior.
+  Parity with `quonfig-openfeature` (Ruby) 1.0.1, which floors at sdk-ruby
+  >= 1.4.0.
+
 ## 1.0.0 - 2026-06-06
 
 - **Stable 1.0.0 release.** The Quonfig OpenFeature provider for Python is now declared
