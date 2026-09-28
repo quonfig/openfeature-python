@@ -127,3 +127,17 @@ def test_error_flag_not_found_variant_and_error_message(of_client):
     assert details.variant == "default"
     # error_message is preserved end-to-end via FlagResolutionDetails
     assert details.error_message is not None and len(details.error_message) > 0
+
+
+def test_split_bucket_zero_variant_and_flag_metadata(of_client):
+    # user-123 lands on variant-a (weighted index 0). Bucket 0 is still a
+    # SPLIT and must carry weighted_value_index 0 (qfg-stbb).
+    ec = EvaluationContext(targeting_key="user-123")
+    details = of_client.get_string_details("of.weighted", "fallback", ec)
+    assert details.value == "variant-a"
+    assert details.reason == Reason.SPLIT
+    assert details.variant == "split:0"
+    md = details.flag_metadata
+    assert md is not None
+    assert md.get("config_id") == "18000000000000002"
+    assert md.get("weighted_value_index") == 0

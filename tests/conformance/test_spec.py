@@ -156,6 +156,19 @@ def test_2_7_split_reason_for_weighted_values(provider):
     assert result.reason == Reason.SPLIT
 
 
+def test_2_7_split_reason_for_weighted_bucket_zero(provider):
+    """`user-123` lands on variant-a, the FIRST weighted value (0-based
+    index 0). Bucket 0 is still a split and must report SPLIT, not STATIC
+    (qfg-stbb: the SDK used to gate SPLIT on `weighted_value_index > 0`).
+    Mirrors tests/openfeature/openfeature.yaml Case 5."""
+    ec = EvaluationContext(targeting_key="user-123")
+    result = provider.resolve_string_details("of.weighted", "fallback", ec)
+    assert result.value == "variant-a"
+    assert result.reason == Reason.SPLIT
+    assert result.variant == "split:0"
+    assert result.flag_metadata.get("weighted_value_index") == 0
+
+
 def test_2_7_error_reason_for_missing_flag(provider):
     result = provider.resolve_boolean_details("does-not-exist", False)
     assert result.reason == Reason.ERROR
