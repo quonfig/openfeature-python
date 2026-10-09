@@ -15,7 +15,7 @@ jobs:
       # `quonfig` resolves from PyPI, so only the repo itself and the shared
       # test corpus need checking out.
       - name: Checkout openfeature-python
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: openfeature-python
 
@@ -24,7 +24,7 @@ jobs:
       # checking it out as a sibling — the test fixtures resolve it via a
       # relative path from the test file location.
       - name: Checkout integration-test-data sibling
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: quonfig/integration-test-data
           path: integration-test-data
