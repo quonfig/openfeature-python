@@ -17,7 +17,7 @@ quonfig = ">=1.4.1"
 openfeature-sdk = ">=0.7.0"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.0"
+pytest = ">=8,<10"
 pytest-mock = "^3.0"
 ruff = "^0.4"
 mypy = "^1.0"
