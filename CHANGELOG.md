@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.2 - 2026-10-09
+
+- Raise the `quonfig` dependency floor from `>=1.4.1` to `>=1.7.1` so provider
+  users inherit sdk-python 1.7.1: no SSE clean-EOF reconnect storm, mid-body
+  fetch errors fail over, `scoped_context` per asyncio task, weighted-variant
+  redaction and `close()` dropping the SSE stream (qfg-goi1.2.12, qfg-goi1.2.13,
+  qfg-goi1.2.22, qfg-goi1.2.45). No change to this provider's behavior.
+
 ## 1.0.1 - 2026-09-11
 
 - Raise the `quonfig` dependency floor from `>=1.0.0` to `>=1.4.1` so provider
