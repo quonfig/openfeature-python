@@ -33,3 +33,12 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # Runtime dependencies of the published package (main group, not dev).
+      # Our constraint is the floor customers must install, so a major bump
+      # here forces every customer onto that major. Raise these floors
+      # deliberately in a release, not via Dependabot.
+      - dependency-name: "quonfig"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "openfeature-sdk"
+        update-types: ["version-update:semver-major"]
