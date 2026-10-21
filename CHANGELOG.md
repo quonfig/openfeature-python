@@ -8,11 +8,13 @@
   loads within `init_timeout_ms`. Both options pass through as provider kwargs.
 - Init failure now maps to OpenFeature status ERROR instead of READY (design
   B.5). `initialize()` raises a non-fatal `ProviderNotReadyError` (cause: the
-  `QuonfigInitError`) under `"fail"`, and also under `"continue"` when no config
-  loaded, or when the provider has no data source at all. The client is kept
-  and keeps retrying; when it loads config the provider emits `PROVIDER_READY`.
-  `api.set_provider_and_wait()` re-raises the error; `api.set_provider()` does
-  not.
+  `QuonfigInitError`) under `"fail"`; `api.set_provider_and_wait()` re-raises
+  it. Under `"continue"` with no config (or with no data source at all),
+  `initialize()` returns, OpenFeature records READY, and the provider then
+  emits a non-fatal `PROVIDER_ERROR`, so the status ends ERROR without
+  raising. The client is kept and keeps retrying; when it loads config the
+  provider emits `PROVIDER_READY`, and the status ends READY even if the heal
+  races the init ERROR.
 - The provider now emits events: `PROVIDER_READY` on heal and
   `PROVIDER_CONFIGURATION_CHANGED` on every later config install. A
   user-supplied `on_config_update` callback still fires.

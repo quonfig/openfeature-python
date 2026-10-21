@@ -4,18 +4,36 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Any, Callable, Mapping, Optional, Sequence, Union
 
 from openfeature.evaluation_context import EvaluationContext
 from openfeature.event import ProviderEventDetails
+from openfeature.exception import ErrorCode as ExceptionErrorCode
 from openfeature.exception import ProviderNotReadyError
 from openfeature.flag_evaluation import ErrorCode, FlagResolutionDetails, Reason
-from openfeature.provider import AbstractProvider, Metadata
+from openfeature.provider import AbstractProvider, Metadata, ProviderStatus
 from quonfig import EvaluationDetails, Quonfig, QuonfigInitError
 
 from .context import map_context
 
 logger = logging.getLogger(__name__)
+
+try:  # The registry has lived here since openfeature-sdk 0.7 (our floor).
+    from openfeature.provider._registry import provider_registry as _provider_registry
+except ImportError:  # pragma: no cover - future SDK layout change
+    _provider_registry = None  # type: ignore[assignment]
+
+
+def _of_status(provider: Any) -> Optional[ProviderStatus]:
+    """The status OpenFeature has recorded for ``provider``, or ``None`` when
+    the registry is not reachable."""
+    if _provider_registry is None:
+        return None
+    try:
+        return _provider_registry.get_provider_status(provider)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # Map the Quonfig SDK's EvaluationDetails reason strings to OpenFeature's
@@ -69,10 +87,10 @@ class QuonfigProvider(AbstractProvider):
       retrying in the background; when it loads config the provider emits
       PROVIDER_READY.
     * ``"wait"``: ``initialize`` blocks (status NOT_READY) until config loads.
-    * ``"continue"`` and no config: status ERROR as for ``"fail"`` (OpenFeature
-      Python only marks a provider ERROR when ``initialize`` raises), then
-      PROVIDER_READY on heal. Evaluations meanwhile return the caller default
-      with ``PROVIDER_NOT_READY``.
+    * ``"continue"`` and no config: ``initialize`` returns (OpenFeature records
+      READY), then the provider emits a non-fatal PROVIDER_ERROR, so the status
+      is ERROR; PROVIDER_READY on heal. Evaluations meanwhile return the
+      caller default with ``PROVIDER_NOT_READY``.
 
     Every later config install emits PROVIDER_CONFIGURATION_CHANGED.
     """
@@ -120,27 +138,20 @@ class QuonfigProvider(AbstractProvider):
         except QuonfigInitError as err:
             # Keep the client: it keeps retrying and heals in the background.
             if self._await_heal():
+                self._reconcile_after_init(emit_error=False)
                 raise ProviderNotReadyError(
                     f"Quonfig init failed (reason={err.reason}): {err}"
                 ) from err
             return
         if self._await_heal():
             # on_init_failure="continue" (or no data source): init returned
-            # without a config, so every evaluation is a code default.
-            raise ProviderNotReadyError(
-                "Quonfig has not loaded a config yet; serving code defaults until it does"
-            )
+            # without a config, so every evaluation is a code default. Resolve
+            # (OpenFeature records READY), then report a non-fatal ERROR.
+            self._reconcile_after_init(emit_error=True)
 
     def _await_heal(self) -> bool:
         """After init: return False when the client holds config (READY),
-        else arm the PROVIDER_READY-on-heal event and return True.
-
-        Checked under the lock so a heal that lands while init() is raising is
-        not lost. A heal in the few instructions between this returning True
-        and OpenFeature dispatching the init ERROR can still be overtaken by
-        that ERROR, leaving the status ERROR while the client serves config.
-        The window is tiny, and evaluations are unaffected (OpenFeature does
-        not short-circuit on ERROR)."""
+        else arm the PROVIDER_READY-on-heal event and return True."""
         with self._event_lock:
             if self._client.is_ready():
                 self._live = True
@@ -148,19 +159,70 @@ class QuonfigProvider(AbstractProvider):
             self._heal_pending = True
             return True
 
+    def _reconcile_after_init(self, *, emit_error: bool) -> None:
+        """OpenFeature records the init outcome (READY when ``initialize``
+        returns, ERROR when it raises) only after ``initialize`` exits, so any
+        event emitted from inside it would be overwritten. Finish on a daemon
+        thread once that outcome is recorded:
+
+        * still no config and ``emit_error``: emit the non-fatal
+          PROVIDER_ERROR (``continue``), so ERROR lands after READY;
+        * healed meanwhile: make sure the status ends READY even if the heal's
+          PROVIDER_READY was overtaken by OpenFeature's init ERROR (``fail``).
+        """
+
+        def _run() -> None:
+            # continue: initialize returned, so OpenFeature records READY;
+            # fail: it raised, so OpenFeature records ERROR.
+            self._await_of_init_status(ProviderStatus.READY if emit_error else ProviderStatus.ERROR)
+            with self._event_lock:
+                if self._heal_pending:
+                    if emit_error:
+                        self.emit_provider_error(
+                            ProviderEventDetails(
+                                message=(
+                                    "Quonfig has not loaded a config yet "
+                                    "(on_init_failure=continue); serving code defaults"
+                                ),
+                                error_code=ExceptionErrorCode.PROVIDER_NOT_READY,
+                            )
+                        )
+                elif _of_status(self) not in (None, ProviderStatus.READY) or (
+                    _of_status(self) is None and not emit_error
+                ):
+                    self.emit_provider_ready(ProviderEventDetails(message="Quonfig config loaded"))
+
+        threading.Thread(target=_run, name="quonfig-of-init-status", daemon=True).start()
+
+    def _await_of_init_status(self, expected: ProviderStatus, timeout_s: float = 5.0) -> None:
+        """Wait until OpenFeature has recorded this provider's init outcome
+        (``expected``). Bounded, for providers driven outside the OpenFeature
+        registry."""
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            status = _of_status(self)
+            if status == expected:
+                return
+            if status is None:
+                time.sleep(0.05)  # registry unavailable: brief grace, then go
+                return
+            time.sleep(0.005)
+
     def _on_config_update(self) -> None:
         """SDK hook, fired after every accepted config install (any thread)."""
         try:
+            # Emit under the lock so events keep their order relative to the
+            # deferred init-status emit above.
             with self._event_lock:
                 heal, live = self._heal_pending, self._live
                 self._heal_pending = False
                 self._live = live or heal
-            if heal:
-                self.emit_provider_ready(ProviderEventDetails(message="Quonfig config loaded"))
-            elif live:
-                self.emit_provider_configuration_changed(ProviderEventDetails())
-            # Otherwise this is the first install inside initialize(); the
-            # OpenFeature SDK emits READY itself when initialize() returns.
+                if heal:
+                    self.emit_provider_ready(ProviderEventDetails(message="Quonfig config loaded"))
+                elif live:
+                    self.emit_provider_configuration_changed(ProviderEventDetails())
+                # Otherwise this is the first install inside initialize(); the
+                # OpenFeature SDK emits READY itself when initialize() returns.
         finally:
             if self._user_on_config_update is not None:
                 self._user_on_config_update()

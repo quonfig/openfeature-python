@@ -7,7 +7,9 @@ provider maps that onto OpenFeature provider status and events:
 * ``fail``: ``initialize`` raises a non-fatal ``ProviderNotReadyError`` ->
   status ERROR; the client stays alive and, on heal, the provider emits
   PROVIDER_READY.
-* ``continue`` with no config: same ERROR status, PROVIDER_READY on heal.
+* ``continue`` with no config: ``initialize`` resolves (OF records READY),
+  then the provider emits a non-fatal PROVIDER_ERROR -> ERROR; PROVIDER_READY
+  on heal.
 * healthy init: READY; later config installs emit CONFIGURATION_CHANGED.
 * an SDK outage at evaluation time surfaces as ``PROVIDER_NOT_READY``.
 
@@ -18,6 +20,7 @@ thread, so every test that checks status right away uses
 
 from __future__ import annotations
 
+import time
 import uuid
 from unittest.mock import MagicMock
 
@@ -86,18 +89,88 @@ def test_fail_then_heal_emits_provider_ready(fake_client, domain):
     assert _status(domain) == ProviderStatus.READY
 
 
-def test_continue_without_config_maps_to_error_then_heals(fake_client, domain):
-    # on_init_failure="continue": init() returns, but nothing is installed.
-    fake_client.init.return_value = fake_client
-    provider = QuonfigProvider(sdk_key="k", on_init_failure="continue")
+def _wait_for_status(domain: str, want: ProviderStatus, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while _status(domain) != want and time.monotonic() < deadline:
+        time.sleep(0.01)
 
+
+def _record_events(domain: str) -> list:
+    seen: list = []
+    client = api.get_client(domain)
+    for ev in (ProviderEvent.PROVIDER_READY, ProviderEvent.PROVIDER_ERROR):
+        client.add_handler(ev, lambda d, ev=ev: seen.append(ev))
+    return seen
+
+
+def test_fail_heal_racing_the_init_error_still_ends_ready(fake_client, domain, mocker):
+    # The client heals right as init() raises: the heal's PROVIDER_READY can
+    # reach OpenFeature before OpenFeature records the init ERROR. The
+    # provider must still end READY.
+    fake_client.init.side_effect = QuonfigInitError("no config")
+    provider = QuonfigProvider(sdk_key="k")
+    real_await = provider._await_of_init_status
+
+    def heal_then_wait(expected):
+        _fire_config_update(fake_client)  # READY emitted before OF's ERROR
+        real_await(expected)
+
+    mocker.patch.object(provider, "_await_of_init_status", side_effect=heal_then_wait)
     with pytest.raises(ProviderNotReadyError):
         api.set_provider_and_wait(provider, domain)
+
+    _wait_for_status(domain, ProviderStatus.READY)
+    time.sleep(0.05)
+    assert _status(domain) == ProviderStatus.READY
+
+
+def test_continue_without_config_resolves_then_emits_error(fake_client, domain):
+    # on_init_failure="continue": init() returns, but nothing is installed.
+    # B.5: initialize resolves (OF records READY), then the provider emits a
+    # non-fatal PROVIDER_ERROR that must land AFTER that READY.
+    fake_client.init.return_value = fake_client
+    provider = QuonfigProvider(sdk_key="k", on_init_failure="continue")
+    api.set_provider_and_wait(provider, domain)  # must not raise
+
+    # Status updates are synchronous and ordered (handlers run on a pool, so
+    # their order is not): ERROR must be the final status, not overwritten by
+    # OpenFeature's READY.
+    _wait_for_status(domain, ProviderStatus.ERROR)
+    time.sleep(0.05)
     assert _status(domain) == ProviderStatus.ERROR
     assert fake_client.ctor.call_args.kwargs["on_init_failure"] == "continue"
+    fake_client.close.assert_not_called()
 
     _fire_config_update(fake_client)
     assert _status(domain) == ProviderStatus.READY
+
+
+def test_continue_without_config_error_ordering_on_background_set_provider(fake_client, domain):
+    fake_client.init.return_value = fake_client
+    provider = QuonfigProvider(sdk_key="k", on_init_failure="continue")
+
+    api.set_provider(provider, domain)  # initialize runs on a background thread
+
+    _wait_for_status(domain, ProviderStatus.ERROR)
+    time.sleep(0.05)  # nothing may flip it back to READY afterwards
+    assert _status(domain) == ProviderStatus.ERROR
+
+
+def test_continue_heal_before_deferred_error_skips_the_error(fake_client, domain, mocker):
+    fake_client.init.return_value = fake_client
+    provider = QuonfigProvider(sdk_key="k", on_init_failure="continue")
+    # The client heals while the deferred emitter is still waiting for
+    # OpenFeature's READY: no ERROR may follow.
+    mocker.patch.object(
+        provider,
+        "_await_of_init_status",
+        side_effect=lambda expected: _fire_config_update(fake_client),
+    )
+    seen = _record_events(domain)
+    api.set_provider_and_wait(provider, domain)
+    time.sleep(0.1)
+    assert _status(domain) == ProviderStatus.READY
+    assert ProviderEvent.PROVIDER_ERROR not in seen
 
 
 def test_healthy_init_is_ready_and_updates_emit_configuration_changed(fake_client, domain):
