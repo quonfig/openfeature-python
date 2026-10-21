@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from openfeature.flag_evaluation import ErrorCode
 from quonfig.exceptions import (
-    QuonfigInitTimeoutError,
+    QuonfigInitError,
     QuonfigKeyNotFoundError,
     QuonfigNotInitializedError,
 )
@@ -19,7 +19,7 @@ def to_error_code(err: BaseException) -> ErrorCode:
     """
     if isinstance(err, QuonfigKeyNotFoundError):
         return ErrorCode.FLAG_NOT_FOUND
-    if isinstance(err, (QuonfigInitTimeoutError, QuonfigNotInitializedError)):
+    if isinstance(err, (QuonfigInitError, QuonfigNotInitializedError)):
         return ErrorCode.PROVIDER_NOT_READY
 
     msg = (str(err) or "").lower()

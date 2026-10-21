@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- Require `quonfig` (sdk-python) `>=2.0.0` (qfg-9p4i.12). The SDK's 2.0 init
+  behavior now flows through the provider: `initialize()` blocks until the
+  first config loads, and by default (`on_init_failure="fail"`) fails when none
+  loads within `init_timeout_ms`. Both options pass through as provider kwargs.
+- Init failure now maps to OpenFeature status ERROR instead of READY (design
+  B.5). `initialize()` raises a non-fatal `ProviderNotReadyError` (cause: the
+  `QuonfigInitError`) under `"fail"`, and also under `"continue"` when no config
+  loaded, or when the provider has no data source at all. The client is kept
+  and keeps retrying; when it loads config the provider emits `PROVIDER_READY`.
+  `api.set_provider_and_wait()` re-raises the error; `api.set_provider()` does
+  not.
+- The provider now emits events: `PROVIDER_READY` on heal and
+  `PROVIDER_CONFIGURATION_CHANGED` on every later config install. A
+  user-supplied `on_config_update` callback still fires.
+- The SDK's `PROVIDER_NOT_READY` error code (evaluations before any config
+  loads) now maps to OpenFeature `PROVIDER_NOT_READY` instead of `GENERAL`, and
+  an SDK `STALE` reason maps to OpenFeature `STALE`. `to_error_code()` maps any
+  `QuonfigInitError` to `PROVIDER_NOT_READY`.
+
 ## 1.0.2 - 2026-10-09
 
 - Raise the `quonfig` dependency floor from `>=1.4.1` to `>=1.7.1` so provider

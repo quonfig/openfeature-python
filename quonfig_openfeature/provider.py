@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Callable, Mapping, Optional, Sequence, Union
 
 from openfeature.evaluation_context import EvaluationContext
+from openfeature.event import ProviderEventDetails
+from openfeature.exception import ProviderNotReadyError
 from openfeature.flag_evaluation import ErrorCode, FlagResolutionDetails, Reason
 from openfeature.provider import AbstractProvider, Metadata
-from quonfig import EvaluationDetails, Quonfig
+from quonfig import EvaluationDetails, Quonfig, QuonfigInitError
 
 from .context import map_context
 
@@ -22,6 +25,7 @@ _REASON_MAP = {
     "STATIC": Reason.STATIC,
     "TARGETING_MATCH": Reason.TARGETING_MATCH,
     "SPLIT": Reason.SPLIT,
+    "STALE": Reason.STALE,
     "DEFAULT": Reason.DEFAULT,
     "ERROR": Reason.ERROR,
 }
@@ -33,7 +37,11 @@ _ERROR_CODE_MAP = {
     "FLAG_NOT_FOUND": ErrorCode.FLAG_NOT_FOUND,
     "TYPE_MISMATCH": ErrorCode.TYPE_MISMATCH,
     "GENERAL": ErrorCode.GENERAL,
+    "PROVIDER_NOT_READY": ErrorCode.PROVIDER_NOT_READY,
 }
+
+# SDK reasons that carry a real (non-default) value.
+_VALUE_REASONS = ("STATIC", "TARGETING_MATCH", "SPLIT", "STALE")
 
 
 class QuonfigProvider(AbstractProvider):
@@ -48,6 +56,25 @@ class QuonfigProvider(AbstractProvider):
         api.set_provider(provider)
         client = api.get_client()
         enabled = client.get_boolean_value("my-flag", False)
+
+    Extra keyword arguments go to the ``quonfig.Quonfig`` constructor, so
+    ``on_init_failure`` (``"fail"`` (default) / ``"wait"`` / ``"continue"``)
+    and ``init_timeout_ms`` pass straight through. Provider status follows the
+    SDK's init outcome:
+
+    * config loaded: READY.
+    * ``"fail"`` and no config by the timeout: ``initialize`` raises
+      ``ProviderNotReadyError`` (the ``QuonfigInitError`` is its
+      ``__cause__``), so the status is ERROR. The client is kept and keeps
+      retrying in the background; when it loads config the provider emits
+      PROVIDER_READY.
+    * ``"wait"``: ``initialize`` blocks (status NOT_READY) until config loads.
+    * ``"continue"`` and no config: status ERROR as for ``"fail"`` (OpenFeature
+      Python only marks a provider ERROR when ``initialize`` raises), then
+      PROVIDER_READY on heal. Evaluations meanwhile return the caller default
+      with ``PROVIDER_NOT_READY``.
+
+    Every later config install emits PROVIDER_CONFIGURATION_CHANGED.
     """
 
     def __init__(
@@ -61,6 +88,14 @@ class QuonfigProvider(AbstractProvider):
     ) -> None:
         super().__init__()
         self._targeting_key_mapping = targeting_key_mapping
+        self._user_on_config_update: Optional[Callable[[], None]] = quonfig_kwargs.pop(
+            "on_config_update", None
+        )
+        self._event_lock = threading.Lock()
+        # True once OpenFeature has (or will have) marked us READY.
+        self._live = False
+        # True while initialize() failed and we owe OpenFeature a READY on heal.
+        self._heal_pending = False
         # Forward only the kwargs the user explicitly passed. The Quonfig
         # constructor reads its own env-var fallbacks (QUONFIG_SDK_KEY,
         # QUONFIG_DIR, QUONFIG_ENVIRONMENT) so passing ``None`` here is fine.
@@ -68,6 +103,7 @@ class QuonfigProvider(AbstractProvider):
             sdk_key=sdk_key,
             datadir=datadir,
             environment=environment,
+            on_config_update=self._on_config_update,
             **quonfig_kwargs,
         )
 
@@ -79,7 +115,55 @@ class QuonfigProvider(AbstractProvider):
         return Metadata(name="quonfig")
 
     def initialize(self, evaluation_context: EvaluationContext) -> None:  # noqa: ARG002
-        self._client.init()
+        try:
+            self._client.init()
+        except QuonfigInitError as err:
+            # Keep the client: it keeps retrying and heals in the background.
+            if self._await_heal():
+                raise ProviderNotReadyError(
+                    f"Quonfig init failed (reason={err.reason}): {err}"
+                ) from err
+            return
+        if self._await_heal():
+            # on_init_failure="continue" (or no data source): init returned
+            # without a config, so every evaluation is a code default.
+            raise ProviderNotReadyError(
+                "Quonfig has not loaded a config yet; serving code defaults until it does"
+            )
+
+    def _await_heal(self) -> bool:
+        """After init: return False when the client holds config (READY),
+        else arm the PROVIDER_READY-on-heal event and return True.
+
+        Checked under the lock so a heal that lands while init() is raising is
+        not lost. A heal in the few instructions between this returning True
+        and OpenFeature dispatching the init ERROR can still be overtaken by
+        that ERROR, leaving the status ERROR while the client serves config.
+        The window is tiny, and evaluations are unaffected (OpenFeature does
+        not short-circuit on ERROR)."""
+        with self._event_lock:
+            if self._client.is_ready():
+                self._live = True
+                return False
+            self._heal_pending = True
+            return True
+
+    def _on_config_update(self) -> None:
+        """SDK hook, fired after every accepted config install (any thread)."""
+        try:
+            with self._event_lock:
+                heal, live = self._heal_pending, self._live
+                self._heal_pending = False
+                self._live = live or heal
+            if heal:
+                self.emit_provider_ready(ProviderEventDetails(message="Quonfig config loaded"))
+            elif live:
+                self.emit_provider_configuration_changed(ProviderEventDetails())
+            # Otherwise this is the first install inside initialize(); the
+            # OpenFeature SDK emits READY itself when initialize() returns.
+        finally:
+            if self._user_on_config_update is not None:
+                self._user_on_config_update()
 
     def shutdown(self) -> None:
         self._client.close()
@@ -140,13 +224,11 @@ class QuonfigProvider(AbstractProvider):
         # then fall back to JSON for dict / generic JSON values. Both code
         # paths now use the *_details API and inherit the same reason mapping.
         details = self._client.get_string_list_details(flag_key, contexts=mapped)
-        if details.reason in ("STATIC", "TARGETING_MATCH", "SPLIT") and isinstance(
-            details.value, list
-        ):
+        if details.reason in _VALUE_REASONS and isinstance(details.value, list):
             return FlagResolutionDetails(value=details.value, reason=_REASON_MAP[details.reason])
 
         json_details = self._client.get_json_details(flag_key, contexts=mapped)
-        if json_details.reason in ("STATIC", "TARGETING_MATCH", "SPLIT"):
+        if json_details.reason in _VALUE_REASONS:
             value = json_details.value
             if isinstance(value, (list, dict)):
                 return FlagResolutionDetails(value=value, reason=_REASON_MAP[json_details.reason])

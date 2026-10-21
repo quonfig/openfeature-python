@@ -107,12 +107,39 @@ Quonfig features require the native `quonfig` SDK:
 6. **Context keys use dot-notation** -- `"user.email"`, not nested objects.
 7. **`targeting_key` maps to `user.id` by default** -- configure `targeting_key_mapping` if different.
 
-## Configuration changed events
+## Startup failure and provider events
 
-The provider extends OpenFeature's `AbstractProvider`, so you can register
-event handlers via the standard `api` if you want to know when configs
-update. The native `quonfig` SDK pushes live updates over SSE; surfacing
-those as `PROVIDER_CONFIGURATION_CHANGED` events is on the roadmap.
+Extra keyword arguments go to the native `quonfig.Quonfig` constructor, so the
+SDK's init options pass straight through:
+
+```python
+provider = QuonfigProvider(
+    sdk_key="qf_sk_production_...",
+    on_init_failure="fail",  # default; or "wait" / "continue"
+    init_timeout_ms=10_000,  # default
+)
+```
+
+`initialize()` blocks until the first config loads (up to `init_timeout_ms`).
+Provider status follows the outcome:
+
+| SDK `on_init_failure` | Outcome | Provider status | Later |
+|---|---|---|---|
+| any | config loaded | READY | |
+| `"fail"` | no config by the timeout | ERROR: `initialize()` raises `ProviderNotReadyError` (cause: `quonfig.QuonfigInitError`) | `PROVIDER_READY` once the client heals |
+| `"wait"` | blocks until config loads | NOT_READY while waiting | READY |
+| `"continue"` | no config by the timeout | ERROR (raises `ProviderNotReadyError`, as for `"fail"`) | `PROVIDER_READY` once the client heals |
+
+The provider keeps the client after a failed init, and the client keeps
+retrying in the background. While it has no config, evaluations return your
+default with error code `PROVIDER_NOT_READY`. `api.set_provider()` runs
+`initialize()` on a background thread and never raises;
+`api.set_provider_and_wait()` re-raises the `ProviderNotReadyError`, so catch it
+if you want the process to start on defaults.
+
+Each later config update (SSE, poll, datadir reload) emits
+`PROVIDER_CONFIGURATION_CHANGED`. An `on_config_update` callback you pass still
+fires.
 
 ## Development
 
