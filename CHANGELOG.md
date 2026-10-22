@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 2.0.0 - 2026-10-22
+
+**BREAKING / UPGRADE (major, qfg-9p4i.12).** This release tracks sdk-python
+2.0.0. With the default `on_init_failure="fail"`, a provider that cannot load
+config now ends in OpenFeature status ERROR instead of READY, and
+`api.set_provider_and_wait()` raises `ProviderNotReadyError` at startup. If you
+relied on startup never raising, catch `ProviderNotReadyError` or pass
+`on_init_failure="continue"` to the provider. Evaluations made before any
+config loads now report error code `PROVIDER_NOT_READY` instead of `GENERAL`.
 
 - Require `quonfig` (sdk-python) `>=2.0.0` (qfg-9p4i.12). The SDK's 2.0 init
   behavior now flows through the provider: `initialize()` blocks until the
