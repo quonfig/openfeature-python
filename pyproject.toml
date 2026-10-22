@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "quonfig-openfeature"
-version = "1.0.2"
+version = "2.0.0"
 description = "OpenFeature provider for Quonfig — Python server-side SDK"
 license = "MIT"
 authors = ["Quonfig <hello@quonfig.com>"]
@@ -12,8 +12,10 @@ packages = [{include = "quonfig_openfeature"}]
 # support in 0.0.15.
 python = ">=3.10,<4.0"
 # Runtime dependency on the Quonfig Python SDK, resolved from the published
-# `quonfig` distribution on PyPI.
-quonfig = ">=1.7.1"
+# `quonfig` distribution on PyPI. Floor 2.0.0: blocking init, on_init_failure
+# "fail" default, QuonfigInitError (qfg-9p4i.12). Keep this a bare ">=" floor:
+# release.yaml parses it to wait for that version on PyPI.
+quonfig = ">=2.0.0"
 openfeature-sdk = ">=0.7.0"
 
 [tool.poetry.group.dev.dependencies]
