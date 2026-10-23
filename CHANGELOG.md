@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.1.0 - 2026-10-23
+
+- Require `quonfig` (sdk-python) `>=2.1.0` so provider users inherit sdk-python
+  2.1.0: size caps on delivery payloads (4 MiB per SSE event, 16 MiB per
+  `/api/v2/configs` body; qfg-6vno.20.4), `quonfig_sdk_callback_errors_total`
+  so a raising user callback counts as a callback error rather than a worker
+  restart (qfg-6vno.29), linear-time SSE parsing of large events, and getters
+  that return the default on malformed input instead of raising (qfg-6vno.14).
+  No code change in this provider.
+- **UPGRADE (inherited from sdk-python 2.1.0, qfg-6vno.23).** Under the default
+  `on_init_failure="fail"`, a forked child whose lazy re-initialization cannot
+  load a config now raises `QuonfigInitError` from the SDK's content getters,
+  matching a fresh boot. Through this provider, evaluations in that child
+  resolve to the default with error code `PROVIDER_NOT_READY`. Approved as a
+  minor under Decision 1 (qfg-6vno.16, 2026-10-22; prod corpus scan: n/a, this
+  changes init-failure handling, not who matches a rule).
+
 ## 2.0.0 - 2026-10-22
 
 **BREAKING / UPGRADE (major, qfg-9p4i.12).** This release tracks sdk-python
