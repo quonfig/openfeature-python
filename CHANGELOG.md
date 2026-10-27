@@ -1,5 +1,57 @@
 # Changelog
 
+## 3.0.0 - 2026-10-27
+
+**BREAKING / UPGRADE (major, qfg-zvyy.5).** This release tracks sdk-python
+3.0.0, the cross-SDK typed-getter contract. Require `quonfig` (sdk-python)
+`>=3.0.0` (floor raised from `>=2.1.0`). No change to this provider's code: it
+passes through the SDK's `*_details` results, so provider users inherit the
+contract below.
+
+### UPGRADE to 3.0
+
+A value the getter cannot read as its type now returns your default with
+reason `ERROR` and error code `TYPE_MISMATCH`. Strings are never coerced, and
+the only number conversions are exact ones. What changes for provider users:
+
+- `get_boolean_value()` on a stored string `"true"` or `"false"` returns your
+  default. 2.x parsed it (`"true"` resolved to `True` with reason `STATIC`).
+  Store flags as bool configs.
+- `get_integer_value()` / `get_float_value()` on a stored string such as `"3"`
+  return your default. 2.x parsed it.
+- `get_string_value()` reads only string and log_level configs. On an int or
+  bool config it returns your default; 2.x returned the value's text (`"30"`,
+  `"True"`).
+- `get_integer_value()` on a double config returns the value only when it is
+  whole and within +/-(2^53-1) (`3.0` -> `3`). 2.x truncated (`3.9` -> `3`) and
+  passed through unsafe and huge values; those now return your default with
+  `TYPE_MISMATCH`. `get_float_value()` on an int config still works
+  (`30` -> `30.0`).
+- `get_float_value()` on a `duration` config returns your default with
+  `TYPE_MISMATCH`. 2.x returned the duration in seconds. Durations are now
+  native-only: use `get_client().get_duration()`.
+- A malformed stored int or double (for example `"twelve"`) returns your
+  default with error code `GENERAL`, the same as a malformed ENV_VAR value.
+  2.x reported `TYPE_MISMATCH` for it. An unset ENV_VAR also returns your
+  default with `GENERAL`, as before.
+- sdk-python logs one WARN per key per client when a read returns your
+  default because of a type mismatch, a malformed value, an unset ENV_VAR or a
+  decryption failure. The line names the key and types, never the value.
+- A wrong decryption key now degrades to your defaults (with those WARNs)
+  instead of failing reads. If you call the native client via `get_client()`,
+  see the sdk-python CHANGELOG "UPGRADE to 3.0": `get_*` with a default never
+  raises, `is_feature_enabled` never raises, and `QuonfigTypeMismatchError` is
+  new.
+
+### Tests
+
+- New `tests/integration/test_typed_getter_contract.py` (26 tests) drives the
+  real provider through the OpenFeature client against the
+  integration-test-data `getter.contract.*` fixtures: wrong-type and duration
+  reads return the caller default with `TYPE_MISMATCH`; matching and exact
+  int/float reads resolve; malformed values and an unset ENV_VAR return the
+  default with `GENERAL`. 12 of the 26 fail on sdk-python 2.1.0.
+
 ## 2.1.0 - 2026-10-23
 
 - Require `quonfig` (sdk-python) `>=2.1.0` so provider users inherit sdk-python
