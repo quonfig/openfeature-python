@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "quonfig-openfeature"
-version = "2.1.0"
+version = "3.0.0"
 description = "OpenFeature provider for Quonfig — Python server-side SDK"
 license = "MIT"
 authors = ["Quonfig <hello@quonfig.com>"]
@@ -12,11 +12,13 @@ packages = [{include = "quonfig_openfeature"}]
 # support in 0.0.15.
 python = ">=3.10,<4.0"
 # Runtime dependency on the Quonfig Python SDK, resolved from the published
-# `quonfig` distribution on PyPI. Floor 2.1.0: size caps, callback_errors_total,
-# fork-child init failure raises (qfg-6vno). 2.0.0 brought blocking init, on_init_failure
-# "fail" default, QuonfigInitError (qfg-9p4i.12). Keep this a bare ">=" floor:
-# release.yaml parses it to wait for that version on PyPI.
-quonfig = ">=2.1.0"
+# `quonfig` distribution on PyPI. Floor 3.0.0: the cross-SDK typed-getter
+# contract (qfg-zvyy.5): no string coercion, safe int<->float only, a failed
+# read returns the default. 2.1.0 brought size caps and fork-child init failure
+# raises (qfg-6vno); 2.0.0 blocking init and the on_init_failure "fail" default
+# (qfg-9p4i.12). Keep this a bare ">=" floor: release.yaml parses it to wait
+# for that version on PyPI.
+quonfig = ">=3.0.0"
 openfeature-sdk = ">=0.7.0"
 
 [tool.poetry.group.dev.dependencies]
