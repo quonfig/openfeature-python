@@ -49,11 +49,13 @@ _REASON_MAP = {
 }
 
 # The SDK's error_code strings line up with ``ErrorCode``'s identifiers, but
-# we go through an explicit map so a future SDK-side addition (e.g. PARSE_ERROR)
-# can't silently break our mapping.
+# we go through an explicit map so a future SDK-side addition can't silently
+# break our mapping. PARSE_ERROR: a value of the requested type that cannot be
+# parsed (malformed stored number/duration, unparseable ENV_VAR) (qfg-9xsl).
 _ERROR_CODE_MAP = {
     "FLAG_NOT_FOUND": ErrorCode.FLAG_NOT_FOUND,
     "TYPE_MISMATCH": ErrorCode.TYPE_MISMATCH,
+    "PARSE_ERROR": ErrorCode.PARSE_ERROR,
     "GENERAL": ErrorCode.GENERAL,
     "PROVIDER_NOT_READY": ErrorCode.PROVIDER_NOT_READY,
 }

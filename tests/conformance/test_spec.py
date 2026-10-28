@@ -242,3 +242,49 @@ def test_2_8_metadata_has_non_empty_name(provider):
     md = provider.get_metadata()
     assert md.name
     assert isinstance(md.name, str)
+
+
+# ---------------------------------------------------------------------------
+# PARSE_ERROR vs TYPE_MISMATCH (qfg-9xsl)
+#
+# Mirrors tests/openfeature/openfeature.yaml Case 6 and the malformed-duration
+# case in Case 2. A value that has the requested type but cannot be parsed is
+# PARSE_ERROR; reading a config with the method for another type is
+# TYPE_MISMATCH. Both return the caller's default with reason ERROR.
+# ---------------------------------------------------------------------------
+
+
+def test_parse_error_for_malformed_stored_int(provider):
+    result = provider.resolve_integer_details("getter.contract.int.malformed", 7)
+    assert result.value == 7
+    assert result.reason == Reason.ERROR
+    assert result.error_code == ErrorCode.PARSE_ERROR
+
+
+def test_parse_error_for_malformed_stored_double(provider):
+    result = provider.resolve_float_details("getter.contract.double.malformed", 1.5)
+    assert result.value == 1.5
+    assert result.reason == Reason.ERROR
+    assert result.error_code == ErrorCode.PARSE_ERROR
+
+
+def test_parse_error_for_malformed_env_var_provided_int(provider, monkeypatch):
+    monkeypatch.setenv("QUONFIG_ITD_GETTER_INT", "twelve")
+    result = provider.resolve_integer_details("getter.contract.provided.int.malformed", 7)
+    assert result.value == 7
+    assert result.reason == Reason.ERROR
+    assert result.error_code == ErrorCode.PARSE_ERROR
+
+
+def test_type_mismatch_for_int_config_read_as_boolean(provider):
+    result = provider.resolve_boolean_details("getter.contract.int", False)
+    assert result.value is False
+    assert result.reason == Reason.ERROR
+    assert result.error_code == ErrorCode.TYPE_MISMATCH
+
+
+def test_parse_error_for_malformed_stored_duration(provider):
+    result = provider.resolve_string_details("test.duration.malformed.30s", "PT0S")
+    assert result.value == "PT0S"
+    assert result.reason == Reason.ERROR
+    assert result.error_code == ErrorCode.PARSE_ERROR
