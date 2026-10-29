@@ -49,14 +49,20 @@ _REASON_MAP = {
 }
 
 # The SDK's error_code strings line up with ``ErrorCode``'s identifiers, but
-# we go through an explicit map so a future SDK-side addition (e.g. PARSE_ERROR)
-# can't silently break our mapping.
+# we go through an explicit map so a future SDK-side addition can't silently
+# break our mapping. PARSE_ERROR: a value of the requested type that cannot be
+# parsed (malformed stored number/duration, unparseable ENV_VAR) (qfg-9xsl).
 _ERROR_CODE_MAP = {
     "FLAG_NOT_FOUND": ErrorCode.FLAG_NOT_FOUND,
     "TYPE_MISMATCH": ErrorCode.TYPE_MISMATCH,
+    "PARSE_ERROR": ErrorCode.PARSE_ERROR,
     "GENERAL": ErrorCode.GENERAL,
     "PROVIDER_NOT_READY": ErrorCode.PROVIDER_NOT_READY,
 }
+
+# Stored config types resolve_string_details returns as text. A duration has
+# no OpenFeature type, so its ISO 8601 text is how OpenFeature reads it.
+_STRING_READ_TYPES = ("string", "log_level", "duration")
 
 # SDK reasons that carry a real (non-default) value.
 _VALUE_REASONS = ("STATIC", "TARGETING_MATCH", "SPLIT", "STALE")
@@ -250,8 +256,30 @@ class QuonfigProvider(AbstractProvider):
         default_value: str,
         evaluation_context: Optional[EvaluationContext] = None,
     ) -> FlagResolutionDetails[str]:
-        return self._resolve(
-            flag_key, default_value, evaluation_context, self._client.get_string_details
+        mapped = map_context(evaluation_context, self._targeting_key_mapping)
+        # One evaluation per resolution (qfg-pwrv, qfg-177f decision b):
+        # evaluate_details() returns the stored form. For a string or
+        # log_level config that is the answer, and a duration (no OpenFeature
+        # type) reads as its stored ISO 8601 text, unchanged ("PT90S" stays
+        # "PT90S"). The SDK validates it: a malformed stored duration or
+        # ENV_VAR value is PARSE_ERROR. A failed read carries no value_type and
+        # maps as is (FLAG_NOT_FOUND, GENERAL, ...).
+        details = self._client.evaluate_details(flag_key, contexts=mapped)
+        if details.value_type is None or details.value_type in _STRING_READ_TYPES:
+            return _details_to_of(details, default_value, flag_key)
+        # Any other type is a wrong-type read: TYPE_MISMATCH, as from
+        # get_string_details, without evaluating (and counting) it twice.
+        message = f'Config "{flag_key}" has type {details.value_type}, expected string'
+        warn = getattr(self._client, "_warn_read_failure", None)
+        if callable(warn):  # the SDK's once-per-key WARN for a failed read
+            warn(flag_key, message)
+        return FlagResolutionDetails(
+            value=default_value,
+            reason=Reason.ERROR,
+            error_code=ErrorCode.TYPE_MISMATCH,
+            error_message=message,
+            variant=details.variant,
+            flag_metadata=details.flag_metadata or {},
         )
 
     def resolve_integer_details(

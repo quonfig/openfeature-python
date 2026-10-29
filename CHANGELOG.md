@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.1.0 - 2026-10-29
+
+Require `quonfig` (sdk-python) `>=3.1.0` (floor raised from `>=3.0.0`).
+
+- A malformed value now returns your default with error code `PARSE_ERROR`
+  (3.0.0 reported `GENERAL`): a malformed stored int or double (for example
+  `"twelve"`), a malformed ENV_VAR value, and a malformed stored duration.
+  sdk-python 3.1.0 reports `PARSE_ERROR` and the provider passes it straight
+  through (qfg-wg1n, qfg-9xsl). A wrong-type read is still `TYPE_MISMATCH`, and
+  an unset ENV_VAR or a decryption failure is still `GENERAL`.
+- `get_string_value()` on a `duration` config returns its stored ISO 8601 text
+  unchanged (`"PT90S"` stays `"PT90S"`) with the evaluation's reason, variant
+  and flag metadata. 3.0.0 returned your default with `TYPE_MISMATCH`. A
+  malformed stored duration returns your default with `PARSE_ERROR`. String
+  reads go through sdk-python's `evaluate_details`, one evaluation per read
+  (qfg-pwrv, qfg-177f). `get_float_value()` on a duration is still
+  `TYPE_MISMATCH`.
+- `poetry.lock` is now committed so the SSDLC dependency scan can see this
+  repo's resolved dependencies (qfg-66ko.19). It affects only this repo's
+  development and CI installs, not what users of the package resolve.
+
+### Tests
+
+- Conformance tests mirror integration-test-data `tests/openfeature` Case 2
+  (duration via `resolve_string_details`, including the malformed-duration
+  `PARSE_ERROR`) and Case 6 (malformed stored int/double and malformed ENV_VAR
+  int are `PARSE_ERROR`; a wrong-type read is `TYPE_MISMATCH`).
+
 ## 3.0.0 - 2026-10-27
 
 **BREAKING / UPGRADE (major, qfg-zvyy.5).** This release tracks sdk-python

@@ -101,8 +101,10 @@ Quonfig features require the native `quonfig` SDK:
 
 1. **Log levels** -- `should_log()` is native-only.
 2. **`string_list` configs** -- accessed via `get_object_value()`, returned as a Python `list[str]`.
-3. **`duration` configs** -- native-only: read them with `get_client().get_duration()` (float seconds).
-   `get_float_value()` on a duration config returns your default with `TYPE_MISMATCH`.
+3. **`duration` configs** -- `get_string_value()` returns the stored ISO 8601 text unchanged
+   (`"PT90S"`); a malformed stored duration returns your default with `PARSE_ERROR`. For seconds,
+   use `get_client().get_duration()`. `get_float_value()` on a duration config returns your
+   default with `TYPE_MISMATCH`.
 4. **`bytes` configs** -- not accessible via OpenFeature (no binary type in OF).
 5. **`keys()` and raw config access** -- native-only via `get_client()`.
 6. **Context keys use dot-notation** -- `"user.email"`, not nested objects.

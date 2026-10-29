@@ -1,7 +1,7 @@
 """Typed-getter contract (qfg-zvyy), driven through the real provider and the
 OpenFeature client against the integration-test-data ``getter.contract.*``
 fixtures. No mocks: this pins what provider users inherit from ``quonfig``
-(sdk-python) 3.0.0.
+(sdk-python) 3.0.0 and 3.1.0.
 
 The rule: a flag read with the method for another type returns the caller's
 default with reason ERROR and error code TYPE_MISMATCH. Strings are never
@@ -70,6 +70,15 @@ def test_float_on_stored_string_number_returns_default(client):
 
 def test_string_on_stored_int_returns_default_not_its_text(client):
     assert_type_mismatch(client.get_string_details("getter.contract.int", "fallback"), "fallback")
+
+
+def test_string_on_duration_returns_stored_iso_text(client):
+    # The one string read of a non-string config: a duration has no OpenFeature
+    # type, so it reads as its stored ISO 8601 text (qfg-pwrv).
+    details = client.get_string_details("getter.contract.duration", "fallback")
+    assert details.reason == Reason.STATIC
+    assert details.error_code is None
+    assert details.value == "PT30S"
 
 
 def test_string_on_stored_bool_returns_default(client):
@@ -156,21 +165,24 @@ def test_object_on_string_list_config(client):
 # ---------------------------------------------------------------------------
 # Malformed values and resolution errors return the default
 #
-# sdk-python reports a malformed stored number like a malformed ENV_VAR value:
-# reason ERROR with error code GENERAL (2.x reported a malformed stored
-# int/double as TYPE_MISMATCH).
+# sdk-python 3.1 reports a malformed stored number and a malformed ENV_VAR value
+# as reason ERROR with error code PARSE_ERROR, and the provider passes it
+# straight through (qfg-wg1n; 3.0 reported GENERAL, 2.x TYPE_MISMATCH). An
+# unset ENV_VAR stays GENERAL.
 # ---------------------------------------------------------------------------
 
 
 def test_float_on_malformed_double_returns_default(client):
     assert_error(
-        client.get_float_details("getter.contract.double.malformed", 1.5), 1.5, ErrorCode.GENERAL
+        client.get_float_details("getter.contract.double.malformed", 1.5),
+        1.5,
+        ErrorCode.PARSE_ERROR,
     )
 
 
 def test_integer_on_malformed_int_returns_default(client):
     assert_error(
-        client.get_integer_details("getter.contract.int.malformed", 12), 12, ErrorCode.GENERAL
+        client.get_integer_details("getter.contract.int.malformed", 12), 12, ErrorCode.PARSE_ERROR
     )
 
 
@@ -188,7 +200,7 @@ def test_integer_on_malformed_env_var_returns_default(client, monkeypatch):
     assert_error(
         client.get_integer_details("getter.contract.provided.int.malformed", 4),
         4,
-        ErrorCode.GENERAL,
+        ErrorCode.PARSE_ERROR,
     )
 
 
@@ -197,5 +209,5 @@ def test_float_on_malformed_env_var_returns_default(client, monkeypatch):
     assert_error(
         client.get_float_details("getter.contract.provided.double.malformed", 2.5),
         2.5,
-        ErrorCode.GENERAL,
+        ErrorCode.PARSE_ERROR,
     )
