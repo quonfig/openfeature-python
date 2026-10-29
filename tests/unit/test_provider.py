@@ -36,6 +36,7 @@ def mock_client(mocker):
     fake.get_float_details = MagicMock(return_value=not_found)
     fake.get_string_list_details = MagicMock(return_value=not_found)
     fake.get_json_details = MagicMock(return_value=not_found)
+    fake.evaluate_details = MagicMock(return_value=not_found)
     mocker.patch("quonfig_openfeature.provider.Quonfig", return_value=fake)
     return fake
 
@@ -45,8 +46,8 @@ def provider(mock_client) -> QuonfigProvider:
     return QuonfigProvider(sdk_key="test", datadir="/fake")
 
 
-def _ok(value, reason="TARGETING_MATCH"):
-    return EvaluationDetails(value=value, reason=reason)
+def _ok(value, reason="TARGETING_MATCH", value_type=None):
+    return EvaluationDetails(value=value, reason=reason, value_type=value_type)
 
 
 def _err(error_code, message="boom"):
@@ -102,7 +103,9 @@ def test_targeting_match_reason_passes_through(provider, mock_client):
 
 
 def test_split_reason_passes_through(provider, mock_client):
-    mock_client.get_string_details.return_value = _ok("variant-b", reason="SPLIT")
+    mock_client.evaluate_details.return_value = _ok(
+        "variant-b", reason="SPLIT", value_type="string"
+    )
     result = provider.resolve_string_details("flag", "")
     assert result.value == "variant-b"
     assert result.reason == Reason.SPLIT
@@ -155,14 +158,53 @@ def test_boolean_type_mismatch_when_sdk_reports_type_mismatch(provider, mock_cli
 
 
 def test_string_returns_targeting_match_when_flag_found(provider, mock_client):
-    mock_client.get_string_details.return_value = _ok("hello")
+    mock_client.evaluate_details.return_value = _ok("hello", value_type="string")
     result = provider.resolve_string_details("my-string", "")
     assert result.value == "hello"
     assert result.reason == Reason.TARGETING_MATCH
+    mock_client.evaluate_details.assert_called_once()
+    mock_client.get_string_details.assert_not_called()
+
+
+def test_string_on_log_level_config_returns_its_text(provider, mock_client):
+    mock_client.evaluate_details.return_value = _ok("INFO", "STATIC", value_type="log_level")
+    result = provider.resolve_string_details("log-level.app", "")
+    assert result.value == "INFO"
+    assert result.reason == Reason.STATIC
+
+
+def test_string_on_duration_returns_stored_iso_text(provider, mock_client):
+    # qfg-pwrv: a duration has no OpenFeature type; a string read returns the
+    # stored ISO 8601 text unchanged.
+    mock_client.evaluate_details.return_value = _ok("PT90S", "STATIC", value_type="duration")
+    result = provider.resolve_string_details("timeout", "PT0S")
+    assert result.value == "PT90S"
+    assert result.reason == Reason.STATIC
+    assert result.error_code is None
+
+
+def test_string_on_malformed_duration_is_parse_error(provider, mock_client):
+    mock_client.evaluate_details.return_value = _err("PARSE_ERROR")
+    result = provider.resolve_string_details("timeout", "PT0S")
+    assert result.value == "PT0S"
+    assert result.reason == Reason.ERROR
+    assert result.error_code == ErrorCode.PARSE_ERROR
+
+
+def test_string_on_int_config_is_type_mismatch_with_one_evaluation(provider, mock_client):
+    mock_client.evaluate_details.return_value = _ok(30, "STATIC", value_type="int")
+    result = provider.resolve_string_details("my-int", "fallback")
+    assert result.value == "fallback"
+    assert result.reason == Reason.ERROR
+    assert result.error_code == ErrorCode.TYPE_MISMATCH
+    assert result.error_message == 'Config "my-int" has type int, expected string'
+    mock_client.evaluate_details.assert_called_once()
+    mock_client.get_string_details.assert_not_called()
+    mock_client._warn_read_failure.assert_called_once_with("my-int", result.error_message)
 
 
 def test_string_returns_default_when_missing(provider, mock_client):
-    mock_client.get_string_details.return_value = _err("FLAG_NOT_FOUND")
+    mock_client.evaluate_details.return_value = _err("FLAG_NOT_FOUND")
     result = provider.resolve_string_details("missing", "fallback")
     assert result.value == "fallback"
     assert result.error_code == ErrorCode.FLAG_NOT_FOUND

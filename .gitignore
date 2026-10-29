@@ -13,4 +13,3 @@ build/
 htmlcov/
 *.log
 .env
-poetry.lock

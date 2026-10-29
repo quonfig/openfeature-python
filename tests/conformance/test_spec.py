@@ -288,3 +288,26 @@ def test_parse_error_for_malformed_stored_duration(provider):
     assert result.value == "PT0S"
     assert result.reason == Reason.ERROR
     assert result.error_code == ErrorCode.PARSE_ERROR
+
+
+# ---------------------------------------------------------------------------
+# Duration via resolve_string_details (qfg-pwrv, qfg-177f decision b)
+#
+# Mirrors tests/openfeature/openfeature.yaml Case 2. A duration has no
+# OpenFeature type, so a string read returns its stored ISO 8601 text unchanged
+# (not re-normalized) with reason STATIC.
+# ---------------------------------------------------------------------------
+
+
+def test_duration_via_resolve_string_returns_stored_iso_text(provider):
+    result = provider.resolve_string_details("test.duration.PT90S", "PT0S")
+    assert result.value == "PT90S"
+    assert result.reason == Reason.STATIC
+    assert result.error_code is None
+
+
+def test_multi_component_duration_via_resolve_string_returns_stored_text(provider):
+    result = provider.resolve_string_details("test.duration.P1DT6H2M1.5S", "PT0S")
+    assert result.value == "P1DT6H2M1.5S"
+    assert result.reason == Reason.STATIC
+    assert result.error_code is None
